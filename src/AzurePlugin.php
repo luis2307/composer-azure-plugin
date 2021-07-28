@@ -185,8 +185,20 @@ class AzurePlugin implements PluginInterface, EventSubscriberInterface, Capable
             $artifacts = $azureRepository->getArtifacts();
 
             foreach ($artifacts as $artifactIndex => $artifact) {
-                if (substr($artifact['version'], 0, 4) === "dev-") {
+                $version = $artifact['version'];
+                if (substr($version, 0, 4) === "dev-") {
                     continue;
+                }
+
+
+                if ($this->isWildcardVersion($version)) {
+                    $locker = $this->composer->getLocker()->getLockData();
+                    foreach ( $locker['packages'] as $package ) {
+                        if ( $package['name'] == $artifact['name'] ) {
+                            $version = $package['version'];
+                            break;
+                        }
+                    }
                 }
 
                 // This have to change if we support versions with wildcards like ~ ^ or *
@@ -197,7 +209,7 @@ class AzurePlugin implements PluginInterface, EventSubscriberInterface, Capable
                         $organization,
                         $feed,
                         $artifact['name'],
-                        $this->simplifyVersion($artifact['version'])
+                        $version
                     ]
                 );
 
@@ -215,25 +227,6 @@ class AzurePlugin implements PluginInterface, EventSubscriberInterface, Capable
                     $command .= ' --path ' . $artifactPath;
 
                     $this->executeShellCmd($command);
-
-                    if ($this->isWildcardVersion($artifact['version'])) {
-                        $composer = $this->getComposer($artifactPath);
-                        $newArtifactPath = implode(
-                            DIRECTORY_SEPARATOR,
-                            [
-                                $this->composerCacheDir,
-                                $organization,
-                                $feed,
-                                $artifact['name'],
-                                $composer->getPackage()->getPrettyVersion()
-                            ]
-                        );
-                        $this->getFileHelper()->copyDirectory($artifactPath, $newArtifactPath);
-                        $this->getFileHelper()->removeDirectory($artifactPath);
-                        $artifactPath = $newArtifactPath;
-
-                        $azureRepositoriesWithDependencies[$repoIndex]->updateArtifactVersion($artifactIndex, $composer->getPackage()->getPrettyVersion());
-                    }
 
                     $this->io->write('<info>Package ' . $artifact['name'] . ' downloaded</info>');
                 }
@@ -304,15 +297,6 @@ class AzurePlugin implements PluginInterface, EventSubscriberInterface, Capable
             $lockData['prefer-lowest'],
             []
         );
-    }
-
-    protected function simplifyVersion(string $version): string
-    {
-        if ($this->endsWith($version, '*')) {
-            return str_replace('*', '9999', $version);
-        }
-
-        return $version;
     }
 
     protected function isWildcardVersion(string $version): bool
