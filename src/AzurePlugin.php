@@ -6,6 +6,7 @@ use Composer\Composer;
 use Composer\EventDispatcher\EventSubscriberInterface;
 use Composer\Factory;
 use Composer\IO\IOInterface;
+use Composer\Package\CompleteAliasPackage;
 use Composer\Package\Loader\ArrayLoader;
 use Composer\Plugin\Capable;
 use Composer\Plugin\PluginInterface;
@@ -277,6 +278,12 @@ class AzurePlugin implements PluginInterface, EventSubscriberInterface, Capable
             if ($packageToLock->getDistType() === 'path') {
                 $packageToLock->setDistUrl(str_replace($this->shortedComposerCacheDir, $this->composerCacheDir, $package['dist']['url']));
             }
+
+            // Use complete package if the given package is an alias package
+            if ($packageToLock instanceof CompleteAliasPackage) {
+                $packageToLock = $packageToLock->getAliasOf();
+            }
+
             $packages[] = $packageToLock;
         }
         $packagesDev = [];
