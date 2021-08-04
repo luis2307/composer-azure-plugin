@@ -41,7 +41,7 @@ final class AzurePluginTest extends TestCase
     {
         $this->assertEquals(
             [
-                ScriptEvents::PRE_INSTALL_CMD => [['execute', 50000]],
+                ScriptEvents::PRE_INSTALL_CMD => [['executeInstall', 50000]],
                 ScriptEvents::PRE_UPDATE_CMD => [['execute', 50000]],
 
                 ScriptEvents::POST_INSTALL_CMD => [['modifyComposerLockPostInstall', 50000]],
