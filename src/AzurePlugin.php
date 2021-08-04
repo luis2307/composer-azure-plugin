@@ -24,6 +24,8 @@ class AzurePlugin implements PluginInterface, EventSubscriberInterface, Capable
     protected string $composerCacheDir = '';
     protected string $shortedComposerCacheDir = '~/.composer/cache/azure';
 
+    protected bool $isInstall = false;
+
     public function activate(Composer $composer, IOInterface $io)
     {
         $this->composer = $composer;
@@ -54,12 +56,18 @@ class AzurePlugin implements PluginInterface, EventSubscriberInterface, Capable
     public static function getSubscribedEvents()
     {
         return [
-            ScriptEvents::PRE_INSTALL_CMD => [['execute', 50000]],
+            ScriptEvents::PRE_INSTALL_CMD => [['executeInstall', 50000]],
             ScriptEvents::PRE_UPDATE_CMD => [['execute', 50000]],
 
             ScriptEvents::POST_INSTALL_CMD => [['modifyComposerLockPostInstall', 50000]],
             ScriptEvents::POST_UPDATE_CMD => [['modifyComposerLockPostInstall', 50000]]
         ];
+    }
+
+    public function executeInstall(): void
+    {
+        $this->isInstall = true;
+        $this->execute();
     }
 
     public function execute(): void
@@ -191,13 +199,17 @@ class AzurePlugin implements PluginInterface, EventSubscriberInterface, Capable
                     continue;
                 }
 
-
                 if ($this->isWildcardVersion($version)) {
-                    $locker = $this->composer->getLocker()->getLockData();
-                    foreach ( $locker['packages'] as $package ) {
-                        if ( $package['name'] == $artifact['name'] ) {
-                            $version = $package['version'];
-                            break;
+                    $version = 'wildcard';
+
+                    // If we are in the install command, than we don't want to update the dependency
+                    if ($this->isInstall) {
+                        $locker = $this->composer->getLocker()->getLockData();
+                        foreach ($locker['packages'] as $package) {
+                            if ($package['name'] == $artifact['name']) {
+                                $version = $package['version'];
+                                break;
+                            }
                         }
                     }
                 }
@@ -231,6 +243,29 @@ class AzurePlugin implements PluginInterface, EventSubscriberInterface, Capable
 
                     $this->io->write('<info>Package ' . $artifact['name'] . ' downloaded</info>');
                 }
+
+                // Move to new version folder if we are in the update command
+                if ($this->isWildcardVersion($artifact['version']) && !$this->isInstall) {
+                    $composer = $this->getComposer($artifactPath);
+                    $version = $composer->getPackage()->getPrettyVersion();
+                    $artifactPathOld = $artifactPath;
+                    $artifactPath = implode(
+                        DIRECTORY_SEPARATOR,
+                        [
+                            $this->composerCacheDir,
+                            $organization,
+                            $feed,
+                            $artifact['name'],
+                            $version
+                        ]
+                    );
+                    $this->fileHelper->copyDirectory($artifactPathOld, $artifactPath);
+                    $this->fileHelper->removeDirectory($artifactPathOld);
+
+                }
+
+                $azureRepositoriesWithDependencies[$repoIndex]
+                    ->updateArtifactVersion($artifactIndex, $version);
 
                 $deps = $this->solveDependencies($artifactPath);
                 $azureRepositoriesWithDependencies = array_merge($azureRepositoriesWithDependencies, $deps);
