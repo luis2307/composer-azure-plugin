@@ -47,15 +47,12 @@ class AzureRepository
 
     public function addArtifact(string $name, string $version): void
     {
-        $this->artifacts[] = [
-            'name' => $name,
-            'version' => $version
-        ];
+        $this->artifacts[] = new Artifact($name, new Version($version));
     }
 
     public function updateArtifactVersion(int $index, string $version): void
     {
-        $this->artifacts[$index]['version'] =  $version;
+        $this->artifacts[$index]['version'] = $version;
     }
 
     public function getArtifacts(): array

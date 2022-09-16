@@ -26,11 +26,14 @@ class AzurePlugin implements PluginInterface, EventSubscriberInterface, Capable
 
     protected bool $isInstall = false;
 
+    protected array $downloadedArtifacts = [];
+
     public function activate(Composer $composer, IOInterface $io)
     {
         $this->composer = $composer;
         $this->io = $io;
         $this->composerCacheDir = (string)$this->composer->getConfig()->get('cache-dir') . DIRECTORY_SEPARATOR . 'azure';
+        $this->fileHelper = new FileHelper();
 
         $extra = $composer->getPackage()->getExtra();
         if (!isset($extra['azure-repositories']) || !is_array($extra['azure-repositories'])) {
@@ -40,27 +43,29 @@ class AzurePlugin implements PluginInterface, EventSubscriberInterface, Capable
 
     public function deactivate(Composer $composer, IOInterface $io)
     {
+        // nothing to do
     }
 
     public function uninstall(Composer $composer, IOInterface $io)
     {
+        // nothing to do
     }
 
-    public function getCapabilities()
+    public function getCapabilities(): array
     {
-        return array(
+        return [
             'Composer\Plugin\Capability\CommandProvider' => 'MarvinCaspar\Composer\CommandProvider',
-        );
+        ];
     }
 
-    public static function getSubscribedEvents()
+    public static function getSubscribedEvents(): array
     {
         return [
             ScriptEvents::PRE_INSTALL_CMD => [['executeInstall', 50000]],
             ScriptEvents::PRE_UPDATE_CMD => [['execute', 50000]],
 
             ScriptEvents::POST_INSTALL_CMD => [['modifyComposerLockPostInstall', 50000]],
-            ScriptEvents::POST_UPDATE_CMD => [['modifyComposerLockPostInstall', 50000]]
+            ScriptEvents::POST_UPDATE_CMD => [['modifyComposerLockPostInstall', 50000]],
         ];
     }
 
@@ -72,34 +77,26 @@ class AzurePlugin implements PluginInterface, EventSubscriberInterface, Capable
 
     public function execute(): void
     {
-        $this->fileHelper = $this->getFileHelper();
-
         if (!$this->hasAzureRepositories) {
             return;
         }
 
+        // Update lock file to use the local composer cache dir because each user may have a unique cache path
         $this->modifyComposerLock($this->shortedComposerCacheDir, $this->composerCacheDir);
 
         $azureRepositories = $this->parseRequiredPackages($this->composer);
-        $azureRepositoriesWithDependencies = $this->fetchAzurePackages($azureRepositories);
-        $this->addAzureRepositories($azureRepositoriesWithDependencies);
-    }
-
-    protected function getFileHelper(): FileHelper
-    {
-        return new FileHelper();
+        $this->fetchAzurePackages($azureRepositories, $this->composer->getPackage()->getName(), true);
+        $this->addAzurePackagesAsLocalRepositories($azureRepositories);
     }
 
     public function modifyComposerLockPostInstall(): void
     {
+        // Update lock file to use shorted composer cache dir to make it work for all users
         $this->modifyComposerLock($this->composerCacheDir, $this->shortedComposerCacheDir);
     }
 
     protected function modifyComposerLock(string $search, string $replaceWith): void
     {
-        if (!$this->hasAzureRepositories) {
-            return;
-        }
         if (!is_file('composer.lock')) {
             return;
         }
@@ -113,6 +110,19 @@ class AzurePlugin implements PluginInterface, EventSubscriberInterface, Capable
         $this->executeShellCmd($sedCommand);
 
         $this->io->write('<info>Modified composer.lock path</info>');
+    }
+
+    protected function executeShellCmd(string $cmd): mixed
+    {
+        $output = [];
+        $return_var = -1;
+        $result = exec($cmd, $output, $return_var);
+
+        if ($return_var !== 0) {
+            throw new Exception(implode("\n", $output));
+        }
+
+        return json_decode(join("", $output));
     }
 
     protected function parseRequiredPackages(Composer $composer): array
@@ -140,38 +150,159 @@ class AzurePlugin implements PluginInterface, EventSubscriberInterface, Capable
         return $azureRepositories;
     }
 
-    protected function fetchAzurePackages(array $azureRepositories): array
+    protected function fetchAzurePackages(array $azureRepositories, string $packageName, bool $isMainDependency = true): void
     {
         $package_count = 0;
 
+        /** @var AzureRepository $azureRepository */
         foreach ($azureRepositories as $azureRepository) {
             $package_count += $azureRepository->countArtifacts();
         }
 
+        // skip download if package has no azure repositories defined
         if ($package_count == 0) {
-            return [];
+            return;
         }
 
         $this->io->write('');
-        $this->io->write('<info>Fetching packages from Azure</info>');
-        return $this->downloadAzureArtifacts($azureRepositories);
+        $this->io->write('<info>Fetching packages from Azure - ' . $packageName . '</info>');
+        $this->downloadAzureArtifacts($azureRepositories, $isMainDependency);
     }
 
-    protected function addAzureRepositories(array $azureRepositories)
+    protected function downloadAzureArtifacts(array $azureRepositories, bool $isMainDependency): void
     {
         /** @var AzureRepository $azureRepository */
         foreach ($azureRepositories as $azureRepository) {
-            $organization = $azureRepository->getOrganization();
-            $feed = $azureRepository->getFeed();
-            $symlink = $azureRepository->getSymlink();
+            $artifacts = $azureRepository->getArtifacts();
 
-            foreach ($azureRepository->getArtifacts() as $artifact) {
+            /** @var Artifact $artifact */
+            foreach ($artifacts as $artifact) {
+                if (!$this->alreadyDownloaded($artifact, $isMainDependency)) {
+                    $this->downloadAzureArtifact($azureRepository, $artifact, $isMainDependency);
+                }
+            }
+
+        }
+    }
+
+    protected function alreadyDownloaded(Artifact $artifact, bool $isMainDependency): bool
+    {
+        /** @var Artifact $downloadedArtifact */
+        foreach ($this->downloadedArtifacts as $downloadedArtifact) {
+            // if the dependency comes from the root project, than we want to check for the requested name and version
+            // otherwise we just check if the package name matches
+            if (
+                $isMainDependency &&
+                $downloadedArtifact->getName() == $artifact->getName() &&
+                $downloadedArtifact->getVersion()->getVersion() == $artifact->getVersion()->getVersion()
+            ) {
+                return true;
+            }
+
+            if (!$isMainDependency && $downloadedArtifact->getName() == $artifact->getName()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    protected function downloadAzureArtifact(AzureRepository $azureRepository, Artifact $artifact, bool $isMainDependency): void
+    {
+        if ($artifact->getVersion()->isDevVersion()) {
+            return;
+        }
+
+        $artifactPath = $this->getArtifactPath($azureRepository->getOrganization(), $azureRepository->getFeed(), $artifact);
+
+        // scandir > 2 because of . and .. entries
+        if (is_dir($artifactPath) && count(scandir($artifactPath)) > 2) {
+            $this->io->write('<info>Package ' . $artifact->getName() . ' already downloaded - ' . $artifactPath . '</info>');
+            $downloadedArtifact = $artifact;
+        } else {
+            $command = 'az artifacts universal download';
+            $command .= ' --organization ' . 'https://' . $azureRepository->getOrganization();
+            $command .= ' --project "' . $azureRepository->getProject() . '"';
+            $command .= ' --scope ' . $azureRepository->getScope();
+            $command .= ' --feed ' . $azureRepository->getFeed();
+            $command .= ' --name ' . str_replace('/', '.', $artifact->getName());
+            $command .= ' --version \'' . $artifact->getVersion()->getVersion() . '\'';
+            $command .= ' --path ' . $artifactPath;
+
+            $result = $this->executeShellCmd($command);
+            $downloadedArtifact = new Artifact($artifact->getName(), new Version($result->Version));
+
+            // is wildcard version, than rename downloaded folder to downloaded version
+            if ($artifact->getVersion()->isWildcardVersion() && !$this->isInstall) {
+                $artifactPathOld = $artifactPath;
+                $artifactPath = $this->getArtifactPath($azureRepository->getOrganization(), $azureRepository->getFeed(), $downloadedArtifact);
+                $this->fileHelper->copyDirectory($artifactPathOld, $artifactPath);
+                $this->fileHelper->removeDirectory($artifactPathOld);
+            }
+
+            $this->io->write('<info>Package ' . $artifact->getName() . ' - ' . $result->Version . ' downloaded - ' . $artifactPath . '</info>');
+        }
+
+
+        if ($isMainDependency) {
+            $replaced = false;
+            foreach ($this->downloadedArtifacts as $i => $alreadyDownloadedArtifact) {
+                if ($alreadyDownloadedArtifact->getName() == $artifact->getName()) {
+                    $this->downloadedArtifacts[$i] = $downloadedArtifact;
+                    $replaced = true;
+                    break;
+                }
+            }
+            if (!$replaced) {
+                $this->downloadedArtifacts[] = $downloadedArtifact;
+            }
+        } else {
+            $this->downloadedArtifacts[] = $downloadedArtifact;
+        }
+
+        $this->solveDependencies($artifactPath);
+    }
+
+    protected function getArtifactPath(string $organization, string $feed, Artifact $artifact): string
+    {
+        return implode(
+            DIRECTORY_SEPARATOR,
+            [
+                $this->composerCacheDir,
+                $organization,
+                $feed,
+                $artifact->getName(),
+                $artifact->getVersion()->getDownloadVersion(),
+            ]
+        );
+    }
+
+
+    protected function solveDependencies(string $packagePath)
+    {
+        $composerForPackage = $this->getComposerForPackage($packagePath);
+        $azureRepositories = $this->parseRequiredPackages($composerForPackage);
+        $this->fetchAzurePackages($azureRepositories, $composerForPackage->getPackage()->getName(), false);
+    }
+
+    protected function getComposerForPackage(string $path): Composer
+    {
+        $factory = new Factory();
+        return $factory->createComposer($this->io, implode(DIRECTORY_SEPARATOR, [$path, Factory::getComposerFile()]));
+    }
+
+    protected function addAzurePackagesAsLocalRepositories(array $azureRepositories)
+    {
+        /** @var AzureRepository $azureRepository */
+        foreach ($azureRepositories as $azureRepository) {
+
+            /** @var Artifact $artifact */
+            foreach ($this->downloadedArtifacts as $artifact) {
                 $repo = $this->composer->getRepositoryManager()->createRepository(
                     'path',
-                    array(
-                        'url' => implode(DIRECTORY_SEPARATOR, [$this->composerCacheDir, $organization, $feed, $artifact['name'], $artifact['version']]),
-                        'options' => ['symlink' => $symlink]
-                    )
+                    [
+                        'url' => $this->getArtifactPath($azureRepository->getOrganization(), $azureRepository->getFeed(), $artifact),
+                        'options' => ['symlink' => $azureRepository->getSymlink()],
+                    ]
                 );
                 $this->composer->getRepositoryManager()->addRepository($repo);
             }
@@ -182,125 +313,6 @@ class AzurePlugin implements PluginInterface, EventSubscriberInterface, Capable
         }
     }
 
-    protected function downloadAzureArtifacts(array $azureRepositories): array
-    {
-        $azureRepositoriesWithDependencies = $azureRepositories;
-        /** @var AzureRepository $azureRepository */
-        foreach ($azureRepositories as $repoIndex => $azureRepository) {
-            $organization = $azureRepository->getOrganization();
-            $project = $azureRepository->getProject();
-            $scope = $azureRepository->getScope();
-            $feed = $azureRepository->getFeed();
-            $artifacts = $azureRepository->getArtifacts();
-
-            foreach ($artifacts as $artifactIndex => $artifact) {
-                $version = $artifact['version'];
-                if (substr($version, 0, 4) === "dev-") {
-                    continue;
-                }
-
-                if ($this->isWildcardVersion($version)) {
-                    $version = 'wildcard';
-
-                    // If we are in the install command, than we don't want to update the dependency
-                    if ($this->isInstall) {
-                        $locker = $this->composer->getLocker()->getLockData();
-                        foreach ($locker['packages'] as $package) {
-                            if ($package['name'] == $artifact['name']) {
-                                $version = $package['version'];
-                                break;
-                            }
-                        }
-                    }
-                }
-
-                // This have to change if we support versions with wildcards like ~ ^ or *
-                $artifactPath = implode(
-                    DIRECTORY_SEPARATOR,
-                    [
-                        $this->composerCacheDir,
-                        $organization,
-                        $feed,
-                        $artifact['name'],
-                        $version
-                    ]
-                );
-
-                // don't download if dir already exists and it is not empty
-                if (is_dir($artifactPath) && count(scandir($artifactPath)) > 2) {
-                    $this->io->write('<info>Package ' . $artifact['name'] . ' already downloaded</info>');
-                } else {
-                    $command = 'az artifacts universal download';
-                    $command .= ' --organization ' . 'https://' . $organization;
-                    $command .= ' --project "' . $project . '"';
-                    $command .= ' --scope ' . $scope;
-                    $command .= ' --feed ' . $feed;
-                    $command .= ' --name ' . str_replace('/', '.', $artifact['name']);
-                    $command .= ' --version \'' . $artifact['version'] . '\'';
-                    $command .= ' --path ' . $artifactPath;
-
-                    $this->executeShellCmd($command);
-
-                    $this->io->write('<info>Package ' . $artifact['name'] . ' downloaded</info>');
-                }
-
-                // Move to new version folder if we are in the update command
-                if ($this->isWildcardVersion($artifact['version']) && !$this->isInstall) {
-                    $composer = $this->getComposer($artifactPath);
-                    $version = $composer->getPackage()->getPrettyVersion();
-                    $artifactPathOld = $artifactPath;
-                    $artifactPath = implode(
-                        DIRECTORY_SEPARATOR,
-                        [
-                            $this->composerCacheDir,
-                            $organization,
-                            $feed,
-                            $artifact['name'],
-                            $version
-                        ]
-                    );
-                    $this->fileHelper->copyDirectory($artifactPathOld, $artifactPath);
-                    $this->fileHelper->removeDirectory($artifactPathOld);
-
-                }
-
-                $azureRepositoriesWithDependencies[$repoIndex]
-                    ->updateArtifactVersion($artifactIndex, $version);
-
-                $deps = $this->solveDependencies($artifactPath);
-                $azureRepositoriesWithDependencies = array_merge($azureRepositoriesWithDependencies, $deps);
-
-            }
-        }
-        return $azureRepositoriesWithDependencies;
-    }
-
-    protected function executeShellCmd(string $cmd)
-    {
-        $output = array();
-        $return_var = -1;
-        exec($cmd, $output, $return_var);
-
-        if ($return_var !== 0) {
-            throw new Exception(implode("\n", $output));
-        }
-    }
-
-    protected function solveDependencies(string $packagePath): array
-    {
-        $composer = $this->getComposer($packagePath);
-        $azureRepositories = $this->parseRequiredPackages($composer);
-        $this->fetchAzurePackages($azureRepositories);
-
-        return $azureRepositories;
-    }
-
-    protected function getComposer(string $path): Composer
-    {
-        $factory = new Factory();
-        return $factory->createComposer($this->io, implode(DIRECTORY_SEPARATOR, [$path, Factory::getComposerFile()]));
-    }
-
     protected function adjustPathInComposerLocker(): void
     {
         $this->io->write('<info>Reload composer lock</info>');
@@ -308,7 +320,7 @@ class AzurePlugin implements PluginInterface, EventSubscriberInterface, Capable
         $lockData = $locker->getLockData();
         $loader = new ArrayLoader(null, true);
         $packages = [];
-        foreach ($lockData['packages'] as $i => $package) {
+        foreach ($lockData['packages'] as $package) {
             $packageToLock = $loader->load($package);
             if ($packageToLock->getDistType() === 'path') {
                 $packageToLock->setDistUrl(str_replace($this->shortedComposerCacheDir, $this->composerCacheDir, $package['dist']['url']));
@@ -340,19 +352,4 @@ class AzurePlugin implements PluginInterface, EventSubscriberInterface, Capable
             []
         );
     }
-
-    protected function isWildcardVersion(string $version): bool
-    {
-        return $this->endsWith($version, '*');
-    }
-
-    private function endsWith(string $haystack, string $needle): bool
-    {
-        $length = strlen($needle);
-        if (!$length) {
-            return true;
-        }
-        return substr($haystack, -$length) === $needle;
-    }
-
 }
