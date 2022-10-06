@@ -17,7 +17,7 @@ class AzurePlugin implements PluginInterface, EventSubscriberInterface, Capable
 {
     protected Composer $composer;
     protected IOInterface $io;
-    public bool $hasAzureRepositories = true;
+    protected bool $hasAzureRepositories = true;
 
     protected FileHelper $fileHelper;
 
