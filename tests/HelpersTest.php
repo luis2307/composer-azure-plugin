@@ -3,9 +3,6 @@
 use MarvinCaspar\Composer\FileHelper;
 use PHPUnit\Framework\TestCase;
 
-/**
- * @sk
- */
 final class HelpersTest extends TestCase
 {
     public function testCopyAndRemoveDirectory(): void

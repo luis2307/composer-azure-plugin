@@ -11,7 +11,6 @@ use Composer\Package\Loader\ArrayLoader;
 use Composer\Plugin\Capable;
 use Composer\Plugin\PluginInterface;
 use Composer\Script\ScriptEvents;
-use Exception;
 
 class AzurePlugin implements PluginInterface, EventSubscriberInterface, Capable
 {
@@ -27,6 +26,13 @@ class AzurePlugin implements PluginInterface, EventSubscriberInterface, Capable
     protected bool $isInstall = false;
 
     protected array $downloadedArtifacts = [];
+
+    public CommandExecutor $commandExecutor;
+
+    public function __construct()
+    {
+        $this->commandExecutor = new CommandExecutor();
+    }
 
     public function activate(Composer $composer, IOInterface $io)
     {
@@ -107,22 +113,9 @@ class AzurePlugin implements PluginInterface, EventSubscriberInterface, Capable
             $sedCommand = 'sed -i "" -e "s|' . $search . '|' . $replaceWith . '|g" composer.lock';
         }
 
-        $this->executeShellCmd($sedCommand);
+        $this->commandExecutor->executeShellCmd($sedCommand);
 
         $this->io->write('<info>Modified composer.lock path</info>');
-    }
-
-    protected function executeShellCmd(string $cmd): mixed
-    {
-        $output = [];
-        $return_var = -1;
-        $result = exec($cmd, $output, $return_var);
-
-        if ($return_var !== 0) {
-            throw new Exception(implode("\n", $output));
-        }
-
-        return json_decode(join("", $output));
     }
 
     protected function parseRequiredPackages(Composer $composer): array
@@ -228,7 +221,7 @@ class AzurePlugin implements PluginInterface, EventSubscriberInterface, Capable
             $command .= ' --version \'' . $artifact->getVersion()->getVersion() . '\'';
             $command .= ' --path ' . $artifactPath;
 
-            $result = $this->executeShellCmd($command);
+            $result = $this->commandExecutor->executeShellCmd($command);
             $downloadedArtifact = new Artifact($artifact->getName(), new Version($result->Version));
 
             // is wildcard version, than rename downloaded folder to downloaded version
@@ -317,6 +310,9 @@ class AzurePlugin implements PluginInterface, EventSubscriberInterface, Capable
     {
         $this->io->write('<info>Reload composer lock</info>');
         $locker = $this->composer->getLocker();
+        if (!$locker->isLocked()) {
+            return;
+        }
         $lockData = $locker->getLockData();
         $loader = new ArrayLoader(null, true);
         $packages = [];
