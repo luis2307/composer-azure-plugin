@@ -7,7 +7,7 @@ Composer Azure plugin is an attempt to use Composer with Azure DevOps artifacts,
 
 ## Install
 
-Composer Azure Plugin requires [Composer 1.0.0](https://getcomposer.org/) or newer. It should be installed globally.
+Composer Azure Plugin requires [Composer 2](https://getcomposer.org/) and PHP8.1 or newer. It should be installed globally.
 
 ```
 $ composer global require marvincaspar/composer-azure-plugin
