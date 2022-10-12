@@ -13,7 +13,7 @@ jobs:
 
     strategy:
       matrix:
-        composer: [1, 2]
+        composer: [2]
 
     steps:
       - uses: actions/checkout@v2
@@ -33,7 +33,7 @@ jobs:
       - name: Setup PHP with Xdebug 2.x
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '7.4'
+          php-version: '8.1'
           tools: composer:v${{ matrix.composer }}
           coverage: xdebug2
 

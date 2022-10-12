@@ -14,7 +14,8 @@ $ composer global require marvincaspar/composer-azure-plugin
 ```
 
 You have to be logged in via
-the [Azure command line interface](https://docs.microsoft.com/de-de/cli/azure/install-azure-cli-linux?pivots=apt#sign-in-to-azure-with-the-azure-cli).
+the [Azure command line interface](https://docs.microsoft.com/de-de/cli/azure/install-azure-cli-linux?pivots=apt#sign-in-to-azure-with-the-azure-cli)
+.
 
 ## Usage
 
@@ -26,14 +27,14 @@ In the package you want to publish you have to add an `azure-publish-registry` c
 
 ```json
 {
-  ...
-  "extra": {
-    "azure-publish-registry": {
-      "organization": "<my-organization>",
-      "project": "<my-project-name>",
-      "feed": "<my-feed-name>"
+    ...
+    "extra": {
+        "azure-publish-registry": {
+            "organization": "dev.azure.com/<my-organization>",
+            "project": "<my-project-name>",
+            "feed": "<my-feed-name>"
+        }
     }
-  }
 }
 ```
 
@@ -48,21 +49,21 @@ is, that you can't use constraints and set a specific version.
 
 ```json
 {
-  "require": {
-    "vendor-name/my-package": "1.0.0"
-  },
-  "extra": {
-    "azure-repositories": [
-      {
-        "organization": "<my-organization>",
-        "project": "<my-project-name>",
-        "feed": "<my-feed-name>",
-        "symlink": false,
-        "packages": [
-          "vendor-name/my-package"
+    "require": {
+        "vendor-name/my-package": "1.0.0"
+    },
+    "extra": {
+        "azure-repositories": [
+            {
+                "organization": "dev.azure.com/<my-organization>",
+                "project": "<my-project-name>",
+                "feed": "<my-feed-name>",
+                "symlink": false,
+                "packages": [
+                    "vendor-name/my-package"
+                ]
+            }
         ]
-      }
-    ]
-  }
+    }
 }
 ```
