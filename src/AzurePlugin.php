@@ -225,7 +225,7 @@ class AzurePlugin implements PluginInterface, EventSubscriberInterface, Capable
             $downloadedArtifact = new Artifact($artifact->getName(), new Version($result->Version));
 
             // is wildcard version, than rename downloaded folder to downloaded version
-            if ($artifact->getVersion()->isWildcardVersion() && !$this->isInstall) {
+            if ($artifact->getVersion()->isWildcardVersion()) {
                 $artifactPathOld = $artifactPath;
                 $artifactPath = $this->getArtifactPath($azureRepository->getOrganization(), $azureRepository->getFeed(), $downloadedArtifact);
                 $this->fileHelper->copyDirectory($artifactPathOld, $artifactPath);
