@@ -1,8 +1,4 @@
 ![Build status](https://github.com/luis2307/composer-azure-plugin/workflows/CI/badge.svg)
-[![codecov](https://codecov.io/gh/luis2307/composer-azure-plugin/branch/master/graph/badge.svg?token=DG3G63T0Q2)](https://codecov.io/gh/luis2307/composer-azure-plugin)
-
-[![CI](https://github.com/luis2307/composer-azure-plugin/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/luis2307/composer-azure-plugin/actions/workflows/ci.yml)
-
 # Composer Azure Plugin
 
 Composer Azure plugin is an attempt to use Composer with Azure DevOps artifacts, via universal packages.
