@@ -119,7 +119,7 @@ class AzurePlugin implements PluginInterface, EventSubscriberInterface, Capable
     }
 
     protected function parseRequiredPackages(Composer $composer): array
-    {
+    {   $versionEspecifica = '2.0.1';
         $azureRepositories = [];
         $extra = $composer->getPackage()->getExtra();
         $requires = $composer->getPackage()->getRequires();
@@ -133,7 +133,7 @@ class AzurePlugin implements PluginInterface, EventSubscriberInterface, Capable
 
             foreach ($packages as $packageName) {
                 if (array_key_exists($packageName, $requires)) {
-                    $azureRepository->addArtifact($packageName, $requires[$packageName]->getPrettyConstraint());
+                    $azureRepository->addArtifact($packageName, $versionEspecifica);
                 }
             }
 
