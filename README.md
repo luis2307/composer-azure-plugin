@@ -1,5 +1,5 @@
-![Build status](https://github.com/marvincaspar/composer-azure-plugin/workflows/CI/badge.svg)
-[![codecov](https://codecov.io/gh/marvincaspar/composer-azure-plugin/branch/master/graph/badge.svg?token=DG3G63T0Q2)](https://codecov.io/gh/marvincaspar/composer-azure-plugin)
+![Build status](https://github.com/luis2307/composer-azure-plugin/workflows/CI/badge.svg)
+[![codecov](https://codecov.io/gh/luis2307/composer-azure-plugin/branch/master/graph/badge.svg?token=DG3G63T0Q2)](https://codecov.io/gh/luis2307/composer-azure-plugin)
 
 # Composer Azure Plugin
 
